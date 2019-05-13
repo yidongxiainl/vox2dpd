@@ -6,15 +6,15 @@ CFLAGS = -O3 -Wall -Wno-unused-result
 CFLAGS += -std=c++0x
 
 ####Source files
-EXE = vox2dpd_v3
-OBJ = vox2dpd_v3.o
+EXE = vox2dpd
+OBJ = vox2dpd.o
 
 ####Executable
 VOXCEL2ATOM:$(EXE)
 $(EXE):$(OBJ)
 	$(CC) $(CFLAGS) -o $(EXE) $(OBJ)
-.C.o:
-	$(CC) $(CFLAGS) -c $*.C
+.cpp.o:
+	$(CC) $(CFLAGS) -c $*.cpp
 
 #### clean up old builds
 clean:
