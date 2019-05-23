@@ -123,7 +123,7 @@ int main(int argc, char **argv)
   std::getline(ctrlFile,skipLine);
   ctrlFile >> cropZlo >> cropZhi; std::getline(ctrlFile,skipLine);
 
-  if (cropXlo <= 0 || cropXhi >= 100)
+  if (cropXlo < 0 || cropXhi > 100)
   {
     std::cout
       << "\n" << "Fatal: in file " << ctrlFileName
@@ -131,7 +131,7 @@ int main(int argc, char **argv)
       << " cropXhi = " << cropXhi << "\n";
     std::exit(0);
   }
-  if (cropYlo <= 0 || cropYhi >= 100)
+  if (cropYlo < 0 || cropYhi > 100)
   {
     std::cout
       << "\n" << "Fatal: in file " << ctrlFileName
@@ -139,7 +139,7 @@ int main(int argc, char **argv)
       << " cropYhi = " << cropYhi << "\n";
     std::exit(0);
   }
-  if (cropZlo <= 0 || cropZhi >= 100)
+  if (cropZlo < 0 || cropZhi > 100)
   {
     std::cout
       << "\n" << "Fatal: in file " << ctrlFileName
