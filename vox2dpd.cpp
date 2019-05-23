@@ -70,6 +70,8 @@ int main(int argc, char **argv)
   double xs, ys, zs;
   unsigned long itmp;
 
+  double radius = 0.5;
+
   // strings
 
   std::string skipLine;
@@ -79,6 +81,8 @@ int main(int argc, char **argv)
   std::string inpFluidFileName = "inp_fluid.dat";
   std::string outSolidFileName = "out_solid.dat";
   std::string outFluidFileName = "out_fluid.dat";
+  std::string outSolidDumpName = "out_solid.dump";
+  std::string outFluidDumpName = "out_fluid.dump";
 
   // I/O files
 
@@ -88,6 +92,8 @@ int main(int argc, char **argv)
   std::ifstream inpFluidFile;
   std::ofstream outSolidFile;
   std::ofstream outFluidFile;
+  std::ofstream outSolidDump;
+  std::ofstream outFluidDump;
 
   // ==========================
   // Open and read control file
@@ -723,6 +729,39 @@ int main(int argc, char **argv)
     << "Atoms\n"
     << "\n";
 
+  // LAMMPS dump file format
+
+  outSolidDump.open(outSolidDumpName, std::ios::out);
+  outSolidDump.precision(16);
+  outSolidDump << std::scientific;
+
+  outSolidDump
+    << "ITEM: TIMESTEP\n"
+    << "0\n"
+    << "ITEM: NUMBER OF ATOMS\n"
+    << numSolidBeads << "\n"
+    << "ITEM: BOX BOUNDS ff ff ff\n"
+    << 0 << " " << (xhi-xlo) << "\n"
+    << 0 << " " << (yhi-ylo) << "\n"
+    << 0 << " " << (zhi-zlo) << "\n"
+    << "ITEM: ATOMS id type x y z radius\n";
+
+  outFluidDump.open(outFluidDumpName, std::ios::out);
+  outFluidDump.precision(16);
+  outFluidDump << std::scientific;
+
+  outFluidDump
+    << "ITEM: TIMESTEP\n"
+    << "0\n"
+    << "ITEM: NUMBER OF ATOMS\n"
+    << numFluidBeads << "\n"
+    << "ITEM: BOX BOUNDS ff ff ff\n"
+    << 0 << " " << (xhi-xlo) << "\n"
+    << 0 << " " << (yhi-ylo) << "\n"
+    << 0 << " " << (zhi-zlo) << "\n"
+    << "ITEM: ATOMS id type x y z radius\n";
+
+//    << nTypes << " atom types\n"
 
   // Open the DPD thermodynamically-equilibrated unit cube distribution
 
@@ -772,6 +811,7 @@ int main(int argc, char **argv)
             indexSolidBead ++;
 
             outSolidFile << indexSolidBead << " " << typeWall << " " << xrnd << " " << yrnd << " " << zrnd << "\n";
+            outSolidDump << indexSolidBead << " " << typeWall << " " << xrnd << " " << yrnd << " " << zrnd << " " << radius << "\n";
           }
           else
           {
@@ -813,6 +853,7 @@ int main(int argc, char **argv)
               indexSolidBead ++;
 
               outSolidFile << indexSolidBead << " " << typeWall << " " << xrnd << " " << yrnd << " " << zrnd << "\n";
+              outSolidDump << indexSolidBead << " " << typeWall << " " << xrnd << " " << yrnd << " " << zrnd << " " << radius << "\n";
             }
           }
         }
@@ -827,6 +868,7 @@ int main(int argc, char **argv)
             indexFluidBead ++;
 
             outFluidFile << indexFluidBead << " " << typePore << " " << xrnd << " " << yrnd << " " << zrnd << "\n";
+            outFluidDump << indexFluidBead << " " << typePore << " " << xrnd << " " << yrnd << " " << zrnd << " " << radius << "\n";
           }
           else
           {
@@ -868,6 +910,7 @@ int main(int argc, char **argv)
               indexFluidBead ++;
 
               outFluidFile << indexFluidBead << " " << typePore << " " << xrnd << " " << yrnd << " " << zrnd << "\n";
+              outFluidDump << indexFluidBead << " " << typePore << " " << xrnd << " " << yrnd << " " << zrnd << " " << radius << "\n";
             }
           }
         }
@@ -883,6 +926,8 @@ int main(int argc, char **argv)
 
   outSolidFile.close();
   outFluidFile.close();
+  outSolidDump.close();
+  outFluidDump.close();
 
   if (iFileSolidsRhoUnitDist.is_open())
     iFileSolidsRhoUnitDist.close();
