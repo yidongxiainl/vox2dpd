@@ -28,6 +28,10 @@ int main(int argc, char **argv)
   // Parameter initialization
   // ========================
 
+  // by default we use additive filling
+
+  bool packAdd = true;
+
   bool outSolid = false;
   bool outFluid = false;
 
@@ -53,9 +57,23 @@ int main(int argc, char **argv)
   unsigned long nMaxSolidsPerLattice = 8;
   unsigned long nMaxFluidsPerLattice = 8;
 
-  unsigned long numSolidBeads = 0, numFluidBeads = 0;
+  unsigned long numSolidBeads = 0;
+  unsigned long numFluidBeads = 0;
 
-  unsigned long numSolidVox = 0, numFluidVox = 0;
+  unsigned long numSolidVox = 0;
+  unsigned long numFluidVox = 0;
+
+  unsigned long numLmpBoxBeads = 0;
+  unsigned long xloLmpBox = 0;
+  unsigned long xhiLmpBox = 0;
+  unsigned long yloLmpBox = 0;
+  unsigned long yhiLmpBox = 0;
+  unsigned long zloLmpBox = 0;
+  unsigned long zhiLmpBox = 0;
+
+
+  unsigned long indexSolidBead = 0;
+  unsigned long indexFluidBead = 0;
 
   unsigned long nxSolidVoxLo = 0, nxSolidVoxHi = 0;
   unsigned long nySolidVoxLo = 0, nySolidVoxHi = 0;
@@ -64,10 +82,13 @@ int main(int argc, char **argv)
   unsigned long nyFluidVoxLo = 0, nyFluidVoxHi = 0;
   unsigned long nzFluidVoxLo = 0, nzFluidVoxHi = 0;
 
-  unsigned long hx  = 0, hy  = 0, hz  = 0;
+  unsigned long hx = 0;
+  unsigned long hy = 0;
+  unsigned long hz = 0;
 
   double xrnd, yrnd, zrnd;
   double xs, ys, zs;
+  double tmp1, tmp2;
   unsigned long itmp;
 
   double radius = 0.5;
@@ -79,6 +100,7 @@ int main(int argc, char **argv)
   std::string ctrlFileName = "control";
   std::string inpSolidFileName = "inp_solid.dat";
   std::string inpFluidFileName = "inp_fluid.dat";
+  std::string inpLAMMPSDatName = "LAMMPS_box.dat";
   std::string outSolidFileName = "out_solid.dat";
   std::string outFluidFileName = "out_fluid.dat";
   std::string outSolidDumpName = "out_solid.dump";
@@ -90,6 +112,7 @@ int main(int argc, char **argv)
   std::ifstream ctrlFile;
   std::ifstream inpSolidFile;
   std::ifstream inpFluidFile;
+  std::ifstream inpLAMMPSDat;
   std::ofstream outSolidFile;
   std::ofstream outFluidFile;
   std::ofstream outSolidDump;
@@ -163,6 +186,16 @@ int main(int argc, char **argv)
 
   std::getline(ctrlFile,skipLine);
   ctrlFile >> nSolidsPerLattice >> nFluidsPerLattice; std::getline(ctrlFile,skipLine);
+
+  if(nSolidsPerLattice == 0 || nFluidsPerLattice == 0)
+  {
+    packAdd = false;
+    std::cout << "\n" << "Packing mode: delete from full box\n\n";
+
+    // We still need to reset them to 1 for counting pore and wall voxels
+    nSolidsPerLattice = 1;
+    nFluidsPerLattice = 1;
+  }
 
   if (nSolidsPerLattice > nMaxSolidsPerLattice)
   {
@@ -337,6 +370,8 @@ int main(int argc, char **argv)
       << "\n" << "Fatal: file " << inpSolidFileName << " does not exist.\n";
     std::exit(0);
   }
+  else
+    std::cout << "\n" << "Reading file " << inpSolidFileName << " ... ";
 
   for (unsigned long i = 0; i < numSolidVox; i++)
   {
@@ -375,6 +410,7 @@ int main(int argc, char **argv)
   }
 
   inpSolidFile.close();
+  std::cout << "complete\n ";
 
   // =====================================
   // Open and read input fluid voxel files
@@ -388,6 +424,8 @@ int main(int argc, char **argv)
       << "\n" << "Fatal: file " << inpFluidFileName << " does not exist.\n";
     std::exit(0);
   }
+  else
+    std::cout << "\n" << "Reading file " << inpFluidFileName << " ... ";
 
   for (unsigned long i = 0; i < numFluidVox; i++)
   {
@@ -426,6 +464,7 @@ int main(int argc, char **argv)
   }
 
   inpFluidFile.close();
+  std::cout << "complete\n";
 
   // =========================================================================
   // Find the total numbers of solid and fluid particles in the cropped region
@@ -691,9 +730,193 @@ int main(int argc, char **argv)
   numSolidVox = numSolidLattice / hx / hy / hz;
   numFluidVox = numFluidLattice / hx / hy / hz;
 
+  // ========================================================================
+  // Get the number of solid and fluid beads in the case of packing by delete
+  // ========================================================================
+
+  std::vector<std::vector<double> > BEADS_XYZ;
+  std::vector<unsigned long> BEADS_TYPE;
+  std::vector<bool> BEADS_KEEP;
+
+  if (!packAdd)
+  {
+    inpLAMMPSDat.open(inpLAMMPSDatName, std::ios::in);
+
+    if (!inpLAMMPSDat.is_open())
+    {
+      std::cout
+        << "\n" << "Fatal: file " << inpLAMMPSDatName << " does not exist.\n";
+      std::exit(0);
+    }
+    else
+      std::cout << "\n" << "Reading file " << inpLAMMPSDatName << "\n";
+
+    std::getline(inpLAMMPSDat,skipLine);
+    std::getline(inpLAMMPSDat,skipLine);
+
+    inpLAMMPSDat >> numLmpBoxBeads;
+    std::getline(inpLAMMPSDat,skipLine);
+
+    std::getline(inpLAMMPSDat,skipLine);
+
+    inpLAMMPSDat >> tmp1 >> tmp2;
+    std::getline(inpLAMMPSDat,skipLine);
+    tmp1 = tmp1 + 0.5 - (tmp1<0); xloLmpBox = (int)tmp1;
+    tmp2 = tmp2 + 0.5 - (tmp2<0); xhiLmpBox = (int)tmp2;
+
+    inpLAMMPSDat >> tmp1 >> tmp2;
+    std::getline(inpLAMMPSDat,skipLine);
+    tmp1 = tmp1 + 0.5 - (tmp1<0); yloLmpBox = (int)tmp1;
+    tmp2 = tmp2 + 0.5 - (tmp2<0); yhiLmpBox = (int)tmp2;
+
+    inpLAMMPSDat >> tmp1 >> tmp2;
+    std::getline(inpLAMMPSDat,skipLine);
+    tmp1 = tmp1 + 0.5 - (tmp1<0); zloLmpBox = (int)tmp1;
+    tmp2 = tmp2 + 0.5 - (tmp2<0); zhiLmpBox = (int)tmp2;
+
+    std::cout
+      << std::left << std::setfill('.')
+      << std::setw(40) << "numLmpBoxBeads  "       << "  " << numLmpBoxBeads  << "\n"
+      << std::setw(40) << "xloLmpBox  "            << "  " << xloLmpBox       << "\n"
+      << std::setw(40) << "xhiLmpBox  "            << "  " << xhiLmpBox       << "\n"
+      << std::setw(40) << "yloLmpBox  "            << "  " << yloLmpBox       << "\n"
+      << std::setw(40) << "yhiLmpBox  "            << "  " << yhiLmpBox       << "\n"
+      << std::setw(40) << "zloLmpBox  "            << "  " << zloLmpBox       << "\n"
+      << std::setw(40) << "zhiLmpBox  "            << "  " << zhiLmpBox       << "\n";
+
+    if (xhiLmpBox != (xhi-xlo))
+    {
+      std::cout << "\n\n" << "Error: xhiLmpBox is not equal to (xhi - xlo) ... Please check!\n";
+      std::exit(0);
+    }
+    if (yhiLmpBox != (yhi-ylo))
+    {
+      std::cout << "\n\n" << "Error: yhiLmpBox is not equal to (yhi - ylo) ... Please check!\n";
+      std::exit(0);
+    }
+    if (zhiLmpBox != (zhi-zlo))
+    {
+      std::cout << "\n\n" << "Error: zhiLmpBox is not equal to (zhi - zlo) ... Please check!\n";
+      std::exit(0);
+    }
+
+    for (unsigned int i = 0; i < 11; i++)
+      std::getline(inpLAMMPSDat,skipLine);
+
+    BEADS_KEEP.resize(numLmpBoxBeads, false);
+    BEADS_TYPE.resize(numLmpBoxBeads);
+    BEADS_XYZ.resize(numLmpBoxBeads);
+
+    unsigned long j = 0;
+    unsigned long jmax = 0;
+
+    for (unsigned long i = 0; i < numLmpBoxBeads; i++)
+    {
+      inpLAMMPSDat >> j;
+      if (j > jmax) jmax = j;
+
+      BEADS_XYZ[j-1].resize(3);
+
+      inpLAMMPSDat >> BEADS_TYPE[j-1] >> BEADS_XYZ[j-1][0] >> BEADS_XYZ[j-1][1] >> BEADS_XYZ[j-1][2];
+      std::getline(inpLAMMPSDat,skipLine);
+
+      if (((i+1)%1000) == 0)
+        std::cout << "\r " << std::fixed << std::setw(5) << std::setprecision(3) << (100.0*(double)(i+1)/(double)(numLmpBoxBeads)) << " % complete" << std::flush;
+    }
+    if (jmax != numLmpBoxBeads)
+    {
+      std::cout << "\n" << "Fatal: max particle index in input LAMMPS data is " << jmax << " ... It is NOT equal to numLmpBoxBeads.\n";
+      std::exit(0);
+    }
+
+    inpLAMMPSDat.close();
+
+    // Reset these numbers
+
+    numSolidBeads = 0;
+    numFluidBeads = 0;
+
+    // Count the number of fluid and solid beads to be output
+
+    std::cout << "\n\n" << "Counting the total number of solid and fluid beads for output:\n";
+
+    unsigned long int_xp;
+    unsigned long int_yp;
+    unsigned long int_zp;
+
+    for (unsigned long l = 0; l < numLmpBoxBeads; l++)
+    {
+      int_xp = (unsigned long)(BEADS_XYZ[l][0]);
+      int_yp = (unsigned long)(BEADS_XYZ[l][1]);
+      int_zp = (unsigned long)(BEADS_XYZ[l][2]);
+
+      unsigned long i = xlo + 1 + int_xp;
+      unsigned long j = ylo + 1 + int_yp;
+      unsigned long k = zlo + 1 + int_zp;
+
+      if (i > xhi)
+      {
+        std::cout << "\n\n" << "Error: lattice index i is greater than xhi ... Please check!\n";
+        std::cout << "i   = " << i   << "\n";
+        std::cout << "xhi = " << xhi << "\n";
+        std::exit(0);
+      }
+      if (j > yhi)
+      {
+        std::cout << "\n\n" << "Error: lattice index j is greater than yhi ... Please check!\n";
+        std::cout << "j   = " << j   << "\n";
+        std::cout << "yhi = " << yhi << "\n";
+        std::exit(0);
+      }
+      if (k > zhi)
+      {
+        std::cout << "\n\n" << "Error: lattice index k is greater than zhi ... Please check!\n";
+        std::cout << "k   = " << k   << "\n";
+        std::cout << "zhi = " << zhi << "\n";
+        std::exit(0);
+      }
+
+      if (LATTICE[i][j][k] != typeVoid)
+      {
+        BEADS_KEEP[l] = true;
+
+        if ((LATTICE[i][j][k] == typeWall) || (LATTICE[i][j][k] == typeWallKeep))
+        {
+          numSolidBeads ++;
+          BEADS_TYPE[l] = typeWall;
+        }
+        else if ((LATTICE[i][j][k] == typePore))
+        {
+          numFluidBeads ++;
+          BEADS_TYPE[l] = typePore;
+        }
+        else
+        {
+          std::cout << "\n\n" << "Error: exceptional lattice type ... Please check!\n";
+          std::cout << "i = " << i << "\n";
+          std::cout << "j = " << j << "\n";
+          std::cout << "k = " << k << "\n";
+          std::cout << "lattice type = " << LATTICE[i][j][k] << "\n";
+          std::exit(0);
+        }
+      }
+      if (((l+1)%1000) == 0)
+        std::cout << "\r " << std::fixed << std::setw(5) << std::setprecision(3) << (100.0*(double)(l+1)/(double)(numLmpBoxBeads)) << " % complete" << std::flush;
+    }
+  }
+
   // ===========================
   // Output the LAMMPS data file
   // ===========================
+
+  std::cout
+    << "\n"
+    << "\n" << "Writing output files: "
+    << "\n" << "  " << outSolidFileName
+    << "\n" << "  " << outSolidDumpName
+    << "\n" << "  " << outFluidFileName
+    << "\n" << "  " << outFluidDumpName
+    << "\n";
 
   outSolidFile.open(outSolidFileName, std::ios::out);
   outSolidFile.precision(16);
@@ -761,180 +984,225 @@ int main(int argc, char **argv)
     << 0 << " " << (zhi-zlo) << "\n"
     << "ITEM: ATOMS id type x y z radius\n";
 
-//    << nTypes << " atom types\n"
+  // ==============================================================================
+  // Choose the way to do particle packing and write particle coordinates into file
+  // ==============================================================================
 
-  // Open the DPD thermodynamically-equilibrated unit cube distribution
-
-  std::string iNameSolidsRhoUnitDist = "LAMMPS_rho" + std::to_string(nSolidsPerLattice) + "_unit_dist.dump";
-  std::ifstream iFileSolidsRhoUnitDist;
-  iFileSolidsRhoUnitDist.open(iNameSolidsRhoUnitDist, std::ios::in);
-  if (nSolidsPerLattice > 1)
+  if (packAdd)
   {
-    if (!iFileSolidsRhoUnitDist.is_open())
+    // Open the DPD thermodynamically-equilibrated unit cube distribution
+
+    std::string iNameSolidsRhoUnitDist = "LAMMPS_rho" + std::to_string(nSolidsPerLattice) + "_unit_dist.dump";
+    std::ifstream iFileSolidsRhoUnitDist;
+    iFileSolidsRhoUnitDist.open(iNameSolidsRhoUnitDist, std::ios::in);
+    if (nSolidsPerLattice > 1)
     {
-      std::cout << "\n" << "Fatal: file " << iNameSolidsRhoUnitDist << " does not exist.\n";
-      std::exit(0);
-    }
-    else
-      std::cout << "Open file: " << iNameSolidsRhoUnitDist << std::endl;
-  }
-
-  std::string iNameFluidsRhoUnitDist = "LAMMPS_rho" + std::to_string(nFluidsPerLattice) + "_unit_dist.dump";
-  std::ifstream iFileFluidsRhoUnitDist;
-  iFileFluidsRhoUnitDist.open(iNameFluidsRhoUnitDist, std::ios::in);
-  if (nFluidsPerLattice > 1)
-  {
-    if (!iFileFluidsRhoUnitDist.is_open())
-    {
-      std::cout << "\n" << "Fatal: file " << iNameFluidsRhoUnitDist << " does not exist.\n";
-      std::exit(0);
-    }
-    else
-      std::cout << "Open file: " << iNameFluidsRhoUnitDist << std::endl;
-  }
-
-  unsigned long indexSolidBead = 0;
-  unsigned long indexFluidBead = 0;
-
-  for (unsigned long i = (xlo+1); i <= xhi; i++)
-    for (unsigned long j = (ylo+1); j <= yhi; j++)
-      for (unsigned long k = (zlo+1); k <= zhi; k++)
+      if (!iFileSolidsRhoUnitDist.is_open())
       {
-        if ((LATTICE[i][j][k] == typeWall) || (LATTICE[i][j][k] == typeWallKeep))
+        std::cout << "\n" << "Fatal: file " << iNameSolidsRhoUnitDist << " does not exist.\n";
+        std::exit(0);
+      }
+      else
+        std::cout << "Open file: " << iNameSolidsRhoUnitDist << std::endl;
+    }
+
+    std::string iNameFluidsRhoUnitDist = "LAMMPS_rho" + std::to_string(nFluidsPerLattice) + "_unit_dist.dump";
+    std::ifstream iFileFluidsRhoUnitDist;
+    iFileFluidsRhoUnitDist.open(iNameFluidsRhoUnitDist, std::ios::in);
+    if (nFluidsPerLattice > 1)
+    {
+      if (!iFileFluidsRhoUnitDist.is_open())
+      {
+        std::cout << "\n" << "Fatal: file " << iNameFluidsRhoUnitDist << " does not exist.\n";
+        std::exit(0);
+      }
+      else
+        std::cout << "Open file: " << iNameFluidsRhoUnitDist << std::endl;
+    }
+
+    for (unsigned long i = (xlo+1); i <= xhi; i++)
+      for (unsigned long j = (ylo+1); j <= yhi; j++)
+        for (unsigned long k = (zlo+1); k <= zhi; k++)
         {
-          if (nSolidsPerLattice == 1)
+          if ((LATTICE[i][j][k] == typeWall) || (LATTICE[i][j][k] == typeWallKeep))
           {
-            xrnd = 0.5 + double(i-1-xlo);
-            yrnd = 0.5 + double(j-1-ylo);
-            zrnd = 0.5 + double(k-1-zlo);
-
-            indexSolidBead ++;
-
-            outSolidFile << indexSolidBead << " " << typeWall << " " << xrnd << " " << yrnd << " " << zrnd << "\n";
-            outSolidDump << indexSolidBead << " " << typeWall << " " << xrnd << " " << yrnd << " " << zrnd << " " << radius << "\n";
-          }
-          else
-          {
-            // At the end of file, close file and open again
-            if (iFileSolidsRhoUnitDist.eof())
+            if (nSolidsPerLattice == 1)
             {
-              iFileSolidsRhoUnitDist.close();
-              iFileSolidsRhoUnitDist.open(iNameSolidsRhoUnitDist, std::ios::in);
-            }
-
-            // Skip 9 lines
-            std::getline(iFileSolidsRhoUnitDist,skipLine);
-            std::getline(iFileSolidsRhoUnitDist,skipLine);
-            std::getline(iFileSolidsRhoUnitDist,skipLine);
-            std::getline(iFileSolidsRhoUnitDist,skipLine);
-            std::getline(iFileSolidsRhoUnitDist,skipLine);
-            std::getline(iFileSolidsRhoUnitDist,skipLine);
-            std::getline(iFileSolidsRhoUnitDist,skipLine);
-            std::getline(iFileSolidsRhoUnitDist,skipLine);
-            std::getline(iFileSolidsRhoUnitDist,skipLine);
-
-            for (unsigned int irnd = 0; irnd < nSolidsPerLattice; irnd++)
-            {
-              iFileSolidsRhoUnitDist >> itmp >> itmp >> xs >> ys >> zs;
-              std::getline(iFileSolidsRhoUnitDist,skipLine);
-
-              // take care of periodic boundary condition
-              if (xs < 0.001) xs = 0.999 - (0.001 - xs);
-              if (xs > 0.999) xs = 0.001 + (xs - 0.999);
-              if (ys < 0.001) ys = 0.999 - (0.001 - ys);
-              if (ys > 0.999) ys = 0.001 + (ys - 0.999);
-              if (zs < 0.001) zs = 0.999 - (0.001 - zs);
-              if (zs > 0.999) zs = 0.001 + (zs - 0.999);
-
-              xrnd = xs + double(i-1-xlo);
-              yrnd = ys + double(j-1-ylo);
-              zrnd = zs + double(k-1-zlo);
+              xrnd = 0.5 + double(i-1-xlo);
+              yrnd = 0.5 + double(j-1-ylo);
+              zrnd = 0.5 + double(k-1-zlo);
 
               indexSolidBead ++;
 
               outSolidFile << indexSolidBead << " " << typeWall << " " << xrnd << " " << yrnd << " " << zrnd << "\n";
               outSolidDump << indexSolidBead << " " << typeWall << " " << xrnd << " " << yrnd << " " << zrnd << " " << radius << "\n";
             }
-          }
-        }
-        else if ((LATTICE[i][j][k] == typePore) && outFluid)
-        {
-          if (nFluidsPerLattice == 1)
-          {
-            xrnd = 0.5 + double(i-1-xlo);
-            yrnd = 0.5 + double(j-1-ylo);
-            zrnd = 0.5 + double(k-1-zlo);
-
-            indexFluidBead ++;
-
-            outFluidFile << indexFluidBead << " " << typePore << " " << xrnd << " " << yrnd << " " << zrnd << "\n";
-            outFluidDump << indexFluidBead << " " << typePore << " " << xrnd << " " << yrnd << " " << zrnd << " " << radius << "\n";
-          }
-          else
-          {
-            // At the end of file, close file and open again
-            if (iFileFluidsRhoUnitDist.eof())
+            else
             {
-              iFileFluidsRhoUnitDist.close();
-              iFileFluidsRhoUnitDist.open(iNameFluidsRhoUnitDist, std::ios::in);
+              // At the end of file, close file and open again
+              if (iFileSolidsRhoUnitDist.eof())
+              {
+                iFileSolidsRhoUnitDist.close();
+                iFileSolidsRhoUnitDist.open(iNameSolidsRhoUnitDist, std::ios::in);
+              }
+
+              // Skip 9 lines
+              std::getline(iFileSolidsRhoUnitDist,skipLine);
+              std::getline(iFileSolidsRhoUnitDist,skipLine);
+              std::getline(iFileSolidsRhoUnitDist,skipLine);
+              std::getline(iFileSolidsRhoUnitDist,skipLine);
+              std::getline(iFileSolidsRhoUnitDist,skipLine);
+              std::getline(iFileSolidsRhoUnitDist,skipLine);
+              std::getline(iFileSolidsRhoUnitDist,skipLine);
+              std::getline(iFileSolidsRhoUnitDist,skipLine);
+              std::getline(iFileSolidsRhoUnitDist,skipLine);
+
+              for (unsigned int irnd = 0; irnd < nSolidsPerLattice; irnd++)
+              {
+                iFileSolidsRhoUnitDist >> itmp >> itmp >> xs >> ys >> zs;
+                std::getline(iFileSolidsRhoUnitDist,skipLine);
+
+                // take care of periodic boundary condition
+                if (xs < 0.001) xs = 0.999 - (0.001 - xs);
+                if (xs > 0.999) xs = 0.001 + (xs - 0.999);
+                if (ys < 0.001) ys = 0.999 - (0.001 - ys);
+                if (ys > 0.999) ys = 0.001 + (ys - 0.999);
+                if (zs < 0.001) zs = 0.999 - (0.001 - zs);
+                if (zs > 0.999) zs = 0.001 + (zs - 0.999);
+
+                xrnd = xs + double(i-1-xlo);
+                yrnd = ys + double(j-1-ylo);
+                zrnd = zs + double(k-1-zlo);
+
+                indexSolidBead ++;
+
+                outSolidFile << indexSolidBead << " " << typeWall << " " << xrnd << " " << yrnd << " " << zrnd << "\n";
+                outSolidDump << indexSolidBead << " " << typeWall << " " << xrnd << " " << yrnd << " " << zrnd << " " << radius << "\n";
+              }
             }
-
-            // Skip 9 lines
-            std::getline(iFileFluidsRhoUnitDist,skipLine);
-            std::getline(iFileFluidsRhoUnitDist,skipLine);
-            std::getline(iFileFluidsRhoUnitDist,skipLine);
-            std::getline(iFileFluidsRhoUnitDist,skipLine);
-            std::getline(iFileFluidsRhoUnitDist,skipLine);
-            std::getline(iFileFluidsRhoUnitDist,skipLine);
-            std::getline(iFileFluidsRhoUnitDist,skipLine);
-            std::getline(iFileFluidsRhoUnitDist,skipLine);
-            std::getline(iFileFluidsRhoUnitDist,skipLine);
-
-            for (unsigned int irnd = 0; irnd < nFluidsPerLattice; irnd++)
+          }
+          else if ((LATTICE[i][j][k] == typePore) && outFluid)
+          {
+            if (nFluidsPerLattice == 1)
             {
-              iFileFluidsRhoUnitDist >> itmp >> itmp >> xs >> ys >> zs;
-              std::getline(iFileFluidsRhoUnitDist,skipLine);
-
-              // take care of periodic boundary condition
-              if (xs < 0.001) xs = 0.999 - (0.001 - xs);
-              if (xs > 0.999) xs = 0.001 + (xs - 0.999);
-              if (ys < 0.001) ys = 0.999 - (0.001 - ys);
-              if (ys > 0.999) ys = 0.001 + (ys - 0.999);
-              if (zs < 0.001) zs = 0.999 - (0.001 - zs);
-              if (zs > 0.999) zs = 0.001 + (zs - 0.999);
-
-              xrnd = xs + double(i-1-xlo);
-              yrnd = ys + double(j-1-ylo);
-              zrnd = zs + double(k-1-zlo);
+              xrnd = 0.5 + double(i-1-xlo);
+              yrnd = 0.5 + double(j-1-ylo);
+              zrnd = 0.5 + double(k-1-zlo);
 
               indexFluidBead ++;
 
               outFluidFile << indexFluidBead << " " << typePore << " " << xrnd << " " << yrnd << " " << zrnd << "\n";
               outFluidDump << indexFluidBead << " " << typePore << " " << xrnd << " " << yrnd << " " << zrnd << " " << radius << "\n";
             }
+            else
+            {
+              // At the end of file, close file and open again
+              if (iFileFluidsRhoUnitDist.eof())
+              {
+                iFileFluidsRhoUnitDist.close();
+                iFileFluidsRhoUnitDist.open(iNameFluidsRhoUnitDist, std::ios::in);
+              }
+
+              // Skip 9 lines
+              std::getline(iFileFluidsRhoUnitDist,skipLine);
+              std::getline(iFileFluidsRhoUnitDist,skipLine);
+              std::getline(iFileFluidsRhoUnitDist,skipLine);
+              std::getline(iFileFluidsRhoUnitDist,skipLine);
+              std::getline(iFileFluidsRhoUnitDist,skipLine);
+              std::getline(iFileFluidsRhoUnitDist,skipLine);
+              std::getline(iFileFluidsRhoUnitDist,skipLine);
+              std::getline(iFileFluidsRhoUnitDist,skipLine);
+              std::getline(iFileFluidsRhoUnitDist,skipLine);
+
+              for (unsigned int irnd = 0; irnd < nFluidsPerLattice; irnd++)
+              {
+                iFileFluidsRhoUnitDist >> itmp >> itmp >> xs >> ys >> zs;
+                std::getline(iFileFluidsRhoUnitDist,skipLine);
+
+                // take care of periodic boundary condition
+                if (xs < 0.001) xs = 0.999 - (0.001 - xs);
+                if (xs > 0.999) xs = 0.001 + (xs - 0.999);
+                if (ys < 0.001) ys = 0.999 - (0.001 - ys);
+                if (ys > 0.999) ys = 0.001 + (ys - 0.999);
+                if (zs < 0.001) zs = 0.999 - (0.001 - zs);
+                if (zs > 0.999) zs = 0.001 + (zs - 0.999);
+
+                xrnd = xs + double(i-1-xlo);
+                yrnd = ys + double(j-1-ylo);
+                zrnd = zs + double(k-1-zlo);
+
+                indexFluidBead ++;
+
+                outFluidFile << indexFluidBead << " " << typePore << " " << xrnd << " " << yrnd << " " << zrnd << "\n";
+                outFluidDump << indexFluidBead << " " << typePore << " " << xrnd << " " << yrnd << " " << zrnd << " " << radius << "\n";
+              }
+            }
           }
         }
-      }
 
-  std::cout << "In the cropped region:\n\n";
-  std::cout
-    << std::left << std::setfill('.')
-    << std::setw(40) << "numSolidBeads  "  << "  " << numSolidBeads  << "\n"
-    << std::setw(40) << "indexSolidBead  " << "  " << indexSolidBead << "\n"
-    << std::setw(40) << "numFluidBeads  "  << "  " << numFluidBeads  << "\n"
-    << std::setw(40) << "indexFluidBead  " << "  " << indexFluidBead << "\n";
+    if (iFileSolidsRhoUnitDist.is_open())
+      iFileSolidsRhoUnitDist.close();
+
+    if (iFileFluidsRhoUnitDist.is_open())
+      iFileFluidsRhoUnitDist.close();
+  }
+  else
+  {
+    for (unsigned long l = 0; l < numLmpBoxBeads; l++)
+    {
+      if (BEADS_KEEP[l])
+      {
+        if((BEADS_TYPE[l] == typeWall || BEADS_TYPE[l] == typeWallKeep) && outSolid)
+        {
+          indexSolidBead ++;
+
+          outSolidFile << indexSolidBead << " " << typeWall << " " << BEADS_XYZ[l][0] << " " << BEADS_XYZ[l][1] << " " << BEADS_XYZ[l][2] << "\n";
+          outSolidDump << indexSolidBead << " " << typeWall << " " << BEADS_XYZ[l][0] << " " << BEADS_XYZ[l][1] << " " << BEADS_XYZ[l][2] << " " << radius << "\n";
+        }
+        else if (BEADS_TYPE[l] == typePore && outFluid)
+        {
+          indexFluidBead ++;
+
+          outFluidFile << indexFluidBead << " " << typePore << " " << BEADS_XYZ[l][0] << " " << BEADS_XYZ[l][1] << " " << BEADS_XYZ[l][2] << "\n";
+          outFluidDump << indexFluidBead << " " << typePore << " " << BEADS_XYZ[l][0] << " " << BEADS_XYZ[l][1] << " " << BEADS_XYZ[l][2] << " " << radius << "\n";
+        }
+      }
+      if (((l+1)%1000) == 0)
+        std::cout << "\r " << std::fixed << std::setw(5) << std::setprecision(3) << (100.0*(double)(l+1)/(double)(numLmpBoxBeads)) << " % complete" << std::flush;
+    }
+  }
+
+  // ======================
+  // Close active I/O files
+  // ======================
 
   outSolidFile.close();
   outFluidFile.close();
   outSolidDump.close();
   outFluidDump.close();
 
-  if (iFileSolidsRhoUnitDist.is_open())
-    iFileSolidsRhoUnitDist.close();
+  // =======================
+  // Final data sanity check
+  // =======================
 
-  if (iFileFluidsRhoUnitDist.is_open())
-    iFileFluidsRhoUnitDist.close();
+  std::cout << "\n\n" << "In the cropped region:\n\n";
+  std::cout
+    << std::left << std::setfill('.')
+    << std::setw(40) << "xlo  "            << "  " << "0"      << "\n"
+    << std::setw(40) << "xhi  "            << "  " << xhi-xlo  << "\n"
+    << std::setw(40) << "ylo  "            << "  " << "0"      << "\n"
+    << std::setw(40) << "yhi  "            << "  " << yhi-ylo  << "\n"
+    << std::setw(40) << "zlo  "            << "  " << "0"      << "\n"
+    << std::setw(40) << "zhi  "            << "  " << zhi-zlo  << "\n"
+    << std::setw(40) << "numSolidBeads  "  << "  " << numSolidBeads  << "\n"
+    << std::setw(40) << "indexSolidBead  " << "  " << indexSolidBead << "\n"
+    << std::setw(40) << "numFluidBeads  "  << "  " << numFluidBeads  << "\n"
+    << std::setw(40) << "indexFluidBead  " << "  " << indexFluidBead << "\n";
+
+  // ====================
+  // Report the wall time
+  // ====================
 
   double timeElapsed = (double)(clock() - timeStart) / CLOCKS_PER_SEC;
-  std::cout << "Time elapsed in seconds: " << timeElapsed << "\n";
+  std::cout << "\n" << "Time elapsed in seconds: " << timeElapsed << "\n";
 }

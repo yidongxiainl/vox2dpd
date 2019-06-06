@@ -11,6 +11,8 @@ Xia, Y., Goral, J., Huang, H., Miskovic, I., Meakin, P. and Deo, M., 2017. Many-
 
 ## User's Guide
 
+### Explanation of the control script
+
 To be added ...
 
 ## Limitation
